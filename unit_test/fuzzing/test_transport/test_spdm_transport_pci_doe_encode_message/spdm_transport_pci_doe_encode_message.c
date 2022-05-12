@@ -10,6 +10,8 @@
 #include "spdm_unit_fuzzing.h"
 #include "toolchain_harness.h"
 
+#define PCI_DOE_ALIGNMENT 4
+
 size_t libspdm_get_max_buffer_size(void)
 {
     return LIBSPDM_MAX_MESSAGE_BUFFER_SIZE;
@@ -24,11 +26,14 @@ void libspdm_test_transport_pci_doe_encode_message(void **State)
     bool is_app_message;
     bool is_requester;
     size_t record_header_max_size;
+    size_t alignment;
+    size_t message_size;
 
     spdm_test_context = *State;
     spdm_context = spdm_test_context->spdm_context;
     is_requester = spdm_test_context->is_requester;
     is_app_message = false;
+    alignment = PCI_DOE_ALIGNMENT;
 
     /* limit the encoding buffer to avoid assert, because the input buffer is controlled by the the libspdm consumer. */
     record_header_max_size = sizeof(pci_doe_data_object_header_t) +
@@ -39,10 +44,10 @@ void libspdm_test_transport_pci_doe_encode_message(void **State)
                              0; /* PCI_DOE_MAX_RANDOM_NUMBER_COUNT */
     LIBSPDM_ASSERT(spdm_test_context->test_buffer_size > record_header_max_size);
 
-    transport_message_size = spdm_test_context->test_buffer_size - record_header_max_size;
-
-    libspdm_transport_pci_doe_encode_message(spdm_context, NULL, is_app_message, is_requester,
-                                             spdm_test_context->test_buffer_size - record_header_max_size,
+    message_size = spdm_test_context->test_buffer_size - record_header_max_size;
+    transport_message_size = message_size + (alignment - 1) + record_header_max_size;
+    libspdm_transport_pci_doe_encode_message(spdm_context, NULL, is_app_message,
+                                             is_requester,message_size,
                                              (uint8_t *)spdm_test_context->test_buffer + record_header_max_size,
                                              &transport_message_size,
                                              (void **)&transport_message);
