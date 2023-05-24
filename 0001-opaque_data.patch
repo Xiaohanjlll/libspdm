@@ -1,0 +1,765 @@
+From 4546942498304c95efa984b49d98bddde0633df3 Mon Sep 17 00:00:00 2001
+From: "Zhao, Zhiqiang" <zhiqiang.zhao@intel.com>
+Date: Tue, 23 May 2023 06:31:28 -0400
+Subject: [PATCH] opaque_data
+
+Signed-off-by: Zhao, Zhiqiang <zhiqiang.zhao@intel.com>
+---
+ include/internal/libspdm_common_lib.h         |  10 +
+ .../spdm_common_lib/libspdm_com_opaque_data.c |  43 ++++
+ .../libspdm_req_challenge.c                   |  13 +-
+ .../libspdm_req_get_measurements.c            |  14 ++
+ library/spdm_responder_lib/libspdm_rsp_csr.c  |   9 +
+ unit_test/test_spdm_requester/challenge.c     | 175 ++++++++++++++
+ .../test_spdm_requester/get_measurements.c    | 221 +++++++++++++++++-
+ unit_test/test_spdm_responder/csr.c           |  89 ++++++-
+ 8 files changed, 566 insertions(+), 8 deletions(-)
+
+diff --git a/include/internal/libspdm_common_lib.h b/include/internal/libspdm_common_lib.h
+index ce202a0b..c6d6f5ef 100644
+--- a/include/internal/libspdm_common_lib.h
++++ b/include/internal/libspdm_common_lib.h
+@@ -988,6 +988,16 @@ bool libspdm_get_element_from_opaque_data(libspdm_context_t *spdm_context,
+                                           uint8_t element_id, uint8_t sm_data_id,
+                                           const void **get_element_ptr, size_t *get_element_len);
+ 
++/**
++ * Process opaque data check
++ *
++ * @param  data_in_size  Size in bytes of the data_in.
++ * @param  data_in       A pointer to the buffer to store the opaque data version selection.
++ **/
++bool libspdm_process_general_opaque_data_check(libspdm_context_t *spdm_context,
++                                               size_t data_in_size,
++                                               void *data_in);
++
+ /**
+  * Return the size in bytes of opaque data supported version.
+  *
+diff --git a/library/spdm_common_lib/libspdm_com_opaque_data.c b/library/spdm_common_lib/libspdm_com_opaque_data.c
+index a43e0157..a05403b4 100644
+--- a/library/spdm_common_lib/libspdm_com_opaque_data.c
++++ b/library/spdm_common_lib/libspdm_com_opaque_data.c
+@@ -230,3 +230,46 @@ bool libspdm_get_element_from_opaque_data(libspdm_context_t *spdm_context,
+ 
+     return result;
+ }
++
++/**
++ *  Process general opaque data check
++ *
++ * @param  data_in_size                  size in bytes of the data_in.
++ * @param  data_in                       A pointer to the buffer to store the opaque data version selection.
++ *
++ * @retval RETURN_SUCCESS               Successfully processed the check for opaque data.
++ * @retval RETURN_UNSUPPORTED           The data_in is NOT opaque data .
++ **/
++bool libspdm_process_general_opaque_data_check(libspdm_context_t *spdm_context,
++                                               size_t data_in_size,
++                                               void *data_in)
++{
++    const secured_message_opaque_element_table_header_t
++    *opaque_element_table_header;
++    if (data_in_size > SPDM_MAX_OPAQUE_DATA_SIZE) {
++        return false;
++    }
++
++    if (libspdm_get_connection_version (spdm_context) >= SPDM_MESSAGE_VERSION_12) {
++        if(spdm_context->connection_info.algorithm.other_params_support ==
++           SPDM_ALGORITHMS_OPAQUE_DATA_FORMAT_1) {
++            opaque_element_table_header =
++                (secured_message_opaque_element_table_header_t *)((uint8_t *)data_in + 4);
++            if (opaque_element_table_header->id > SPDM_REGISTRY_ID_JEDEC)
++            {
++                return false;
++            }
++
++            if (((sizeof(opaque_element_table_header->id) +
++                  sizeof(opaque_element_table_header->vendor_len) +
++                  opaque_element_table_header->vendor_len  +
++                  2 +
++                  opaque_element_table_header->opaque_element_data_len) & 3) != 0)
++            {
++                return false;
++            }
++        }
++    }
++
++    return true;
++}
+diff --git a/library/spdm_requester_lib/libspdm_req_challenge.c b/library/spdm_requester_lib/libspdm_req_challenge.c
+index f6312a50..a254b46b 100644
+--- a/library/spdm_requester_lib/libspdm_req_challenge.c
++++ b/library/spdm_requester_lib/libspdm_req_challenge.c
+@@ -250,13 +250,14 @@ static libspdm_return_t libspdm_try_challenge(libspdm_context_t *spdm_context,
+     LIBSPDM_DEBUG((LIBSPDM_DEBUG_INFO, "\n"));
+ 
+     opaque_length = libspdm_read_uint16((const uint8_t *)ptr);
+-    if (opaque_length > SPDM_MAX_OPAQUE_DATA_SIZE) {
+-        status = LIBSPDM_STATUS_INVALID_MSG_FIELD;
+-        goto receive_done;
+-    }
+-
+     ptr += sizeof(uint16_t);
+-
++    if (opaque_length != 0) {
++        result = libspdm_process_general_opaque_data_check(spdm_context, opaque_length, ptr);
++        if (!result) {
++            status = LIBSPDM_STATUS_INVALID_MSG_FIELD;
++            goto receive_done;
++        }
++    }
+     status = libspdm_append_message_c(spdm_context, spdm_request, spdm_request_size);
+     if (LIBSPDM_STATUS_IS_ERROR(status)) {
+         status = LIBSPDM_STATUS_BUFFER_FULL;
+diff --git a/library/spdm_requester_lib/libspdm_req_get_measurements.c b/library/spdm_requester_lib/libspdm_req_get_measurements.c
+index fdc7d38e..2ccebe32 100644
+--- a/library/spdm_requester_lib/libspdm_req_get_measurements.c
++++ b/library/spdm_requester_lib/libspdm_req_get_measurements.c
+@@ -387,6 +387,13 @@ static libspdm_return_t libspdm_try_get_measurement(libspdm_context_t *spdm_cont
+             goto receive_done;
+         }
+         ptr += sizeof(uint16_t);
++        if (opaque_length != 0) {
++            result = libspdm_process_general_opaque_data_check(spdm_context, opaque_length, ptr);
++            if (!result) {
++                status = LIBSPDM_STATUS_INVALID_MSG_FIELD;
++                goto receive_done;
++            }
++        }
+ 
+         if (spdm_response_size <
+             sizeof(spdm_measurements_response_t) +
+@@ -463,6 +470,13 @@ static libspdm_return_t libspdm_try_get_measurement(libspdm_context_t *spdm_cont
+             goto receive_done;
+         }
+         ptr += sizeof(uint16_t);
++        if (opaque_length != 0) {
++            result = libspdm_process_general_opaque_data_check(spdm_context, opaque_length, ptr);
++            if (!result) {
++                status = LIBSPDM_STATUS_INVALID_MSG_FIELD;
++                goto receive_done;
++            }
++        }
+ 
+         if (spdm_response_size <
+             sizeof(spdm_measurements_response_t) +
+diff --git a/library/spdm_responder_lib/libspdm_rsp_csr.c b/library/spdm_responder_lib/libspdm_rsp_csr.c
+index 45d41081..fd284a2e 100644
+--- a/library/spdm_responder_lib/libspdm_rsp_csr.c
++++ b/library/spdm_responder_lib/libspdm_rsp_csr.c
+@@ -115,6 +115,15 @@ libspdm_return_t libspdm_get_response_csr(libspdm_context_t *spdm_context,
+     requester_info = (void *)((size_t)(spdm_request + 1));
+ 
+     opaque_data = (void *)(requester_info + requester_info_length);
++    if (opaque_data_length != 0) {
++        result = libspdm_process_general_opaque_data_check(spdm_context, opaque_data_length,
++                                                           opaque_data);
++        if (!result) {
++            return libspdm_generate_error_response(spdm_context,
++                                                   SPDM_ERROR_CODE_INVALID_REQUEST, 0,
++                                                   response_size, response);
++        }
++    }
+ 
+     need_reset = libspdm_is_capabilities_flag_supported(
+         spdm_context, false, 0,
+diff --git a/unit_test/test_spdm_requester/challenge.c b/unit_test/test_spdm_requester/challenge.c
+index fe0f44ea..258af922 100644
+--- a/unit_test/test_spdm_requester/challenge.c
++++ b/unit_test/test_spdm_requester/challenge.c
+@@ -12,6 +12,9 @@
+ static size_t m_libspdm_local_buffer_size;
+ static uint8_t m_libspdm_local_buffer[LIBSPDM_MAX_MESSAGE_M1M2_BUFFER_SIZE];
+ 
++static uint16_t m_libspdm_local_opaque_data_size;
++static uint8_t m_libspdm_local_opaque_data[LIBSPDM_MAX_MESSAGE_M1M2_BUFFER_SIZE];
++
+ libspdm_return_t libspdm_requester_challenge_test_send_message(void *spdm_context,
+                                                                size_t request_size,
+                                                                const void *request,
+@@ -121,6 +124,7 @@ libspdm_return_t libspdm_requester_challenge_test_send_message(void *spdm_contex
+         return LIBSPDM_STATUS_SUCCESS;
+     case 0x18:
+     case 0x19:
++    case 0x1A:
+         m_libspdm_local_buffer_size = 0;
+         libspdm_copy_mem(m_libspdm_local_buffer, sizeof(m_libspdm_local_buffer), &ptr[1],
+                          request_size - 1);
+@@ -1645,6 +1649,103 @@ libspdm_return_t libspdm_requester_challenge_test_receive_message(
+     }
+         return LIBSPDM_STATUS_SUCCESS;
+ 
++    case 0x1A:
++    {
++        spdm_challenge_auth_response_t  *spdm_response;
++        secured_message_opaque_element_table_header_t
++        *opaque_element_table_header;
++        void *data;
++        size_t data_size;
++        uint8_t                         *Ptr;
++        uint8_t hash_data[LIBSPDM_MAX_HASH_SIZE];
++        size_t sig_size;
++        size_t spdm_response_size;
++        size_t transport_header_size;
++
++
++        libspdm_read_responder_public_certificate_chain (m_libspdm_use_hash_algo,
++                                                         m_libspdm_use_asym_algo,
++                                                         &data,
++                                                         &data_size, NULL, NULL);
++        ((libspdm_context_t*)spdm_context)->local_context.local_cert_chain_provision_size[0] =
++            data_size;
++        ((libspdm_context_t*)spdm_context)->local_context.local_cert_chain_provision[0] = data;
++        ((libspdm_context_t*)spdm_context)->connection_info.algorithm.base_asym_algo =
++            m_libspdm_use_asym_algo;
++        ((libspdm_context_t*)spdm_context)->connection_info.algorithm.base_hash_algo =
++            m_libspdm_use_hash_algo;
++
++
++        opaque_element_table_header = (void *)(m_libspdm_local_opaque_data + 4);
++        opaque_element_table_header->id = SPDM_REGISTRY_ID_JEDEC;
++        opaque_element_table_header->vendor_len = 0;
++        opaque_element_table_header->opaque_element_data_len = 8;
++        libspdm_copy_mem(opaque_element_table_header + 1,
++                         SPDM_MAX_OPAQUE_DATA_SIZE -
++                         sizeof(secured_message_opaque_element_table_header_t), "libspdm",
++                         strlen("libspdm"));
++
++        m_libspdm_local_opaque_data_size =
++            1 + /* TotalElements*/
++            3 + /* Reserved*/
++            sizeof(opaque_element_table_header->id) +
++            sizeof(opaque_element_table_header->vendor_len) +
++            opaque_element_table_header->vendor_len +
++            2 + /* OpaqueElementDataLen*/
++            opaque_element_table_header->opaque_element_data_len;
++
++        spdm_response_size = sizeof(spdm_challenge_auth_response_t) +
++                             libspdm_get_hash_size (m_libspdm_use_hash_algo) +
++                             SPDM_NONCE_SIZE +
++                             0 +
++                             sizeof(uint16_t) + m_libspdm_local_opaque_data_size +
++                             libspdm_get_asym_signature_size (m_libspdm_use_asym_algo);
++        transport_header_size = libspdm_transport_test_get_header_size(spdm_context);
++        spdm_response = (void *)((uint8_t *)*response + transport_header_size);
++
++        spdm_response->header.spdm_version = SPDM_MESSAGE_VERSION_12;
++        spdm_response->header.request_response_code = SPDM_CHALLENGE_AUTH;
++        spdm_response->header.param1 = 0;
++        spdm_response->header.param2 = (1 << 0);
++        Ptr = (void *)(spdm_response + 1);
++        libspdm_hash_all (m_libspdm_use_hash_algo,
++                          ((libspdm_context_t*)spdm_context)->local_context.local_cert_chain_provision[
++                              0],
++                          ((libspdm_context_t*)spdm_context)->local_context.local_cert_chain_provision_size[
++                              0],
++                          Ptr);
++        free(data);
++        Ptr += libspdm_get_hash_size (m_libspdm_use_hash_algo);
++        libspdm_get_random_number (SPDM_NONCE_SIZE, Ptr);
++        Ptr += SPDM_NONCE_SIZE;
++        *(uint16_t *)Ptr = m_libspdm_local_opaque_data_size;
++        Ptr += sizeof(uint16_t);
++        libspdm_copy_mem(Ptr, (size_t)(*response) + *response_size - (size_t)Ptr,
++                         m_libspdm_local_opaque_data,
++                         m_libspdm_local_opaque_data_size);
++        Ptr += m_libspdm_local_opaque_data_size;
++
++        libspdm_copy_mem(&m_libspdm_local_buffer[m_libspdm_local_buffer_size],
++                         sizeof(m_libspdm_local_buffer) -
++                         (&m_libspdm_local_buffer[m_libspdm_local_buffer_size] -
++                          m_libspdm_local_buffer),
++                         spdm_response,
++                         (size_t)Ptr - (size_t)spdm_response);
++        m_libspdm_local_buffer_size += ((size_t)Ptr - (size_t)spdm_response);
++        libspdm_hash_all (m_libspdm_use_hash_algo, m_libspdm_local_buffer,
++                          m_libspdm_local_buffer_size, hash_data);
++        sig_size = libspdm_get_asym_signature_size (m_libspdm_use_asym_algo);
++        libspdm_responder_data_sign(
++            spdm_response->header.spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
++                SPDM_CHALLENGE_AUTH,
++                m_libspdm_use_asym_algo, m_libspdm_use_hash_algo, false, m_libspdm_local_buffer,
++                m_libspdm_local_buffer_size, Ptr, &sig_size);
++        Ptr += sig_size;
++
++        libspdm_transport_test_encode_message (spdm_context, NULL, false, false, spdm_response_size,
++                                               spdm_response, response_size, response);
++    }
++        return LIBSPDM_STATUS_SUCCESS;
+     default:
+         return LIBSPDM_STATUS_RECEIVE_FAIL;
+     }
+@@ -3362,6 +3463,78 @@ void libspdm_test_requester_challenge_case25(void **state) {
+     free(data);
+ }
+ 
++/**
++ * Test 26: the requester is setup correctly to send a CHALLENGE message:
++ * - it has flags indicating that the previous messages were sent
++ * The received CHALLENGE_AUTH message correctly responds to the challenge, opaque
++ * data with bytes from the string "libspdm", and a signature on the sent nonce.
++ * Expected behavior: client returns a status of RETURN_SUCCESS.
++ **/
++void libspdm_test_requester_challenge_case26(void **state) {
++    libspdm_return_t status;
++    libspdm_test_context_t    *spdm_test_context;
++    libspdm_context_t  *spdm_context;
++    uint8_t measurement_hash[LIBSPDM_MAX_HASH_SIZE];
++    void                 *data;
++    size_t data_size;
++    void                 *hash;
++    size_t hash_size;
++    uint8_t opaque_data[SPDM_MAX_OPAQUE_DATA_SIZE];
++    size_t opaque_data_size;
++
++    spdm_test_context = *state;
++    spdm_context = spdm_test_context->spdm_context;
++    spdm_test_context->case_id = 0x1A;
++    spdm_context->connection_info.connection_state = LIBSPDM_CONNECTION_STATE_NEGOTIATED;
++    spdm_context->connection_info.capability.flags = 0;
++    spdm_context->connection_info.capability.flags |= SPDM_GET_CAPABILITIES_RESPONSE_FLAGS_CHAL_CAP;
++    libspdm_read_responder_public_certificate_chain (m_libspdm_use_hash_algo,
++                                                     m_libspdm_use_asym_algo,
++                                                     &data, &data_size,
++                                                     &hash, &hash_size);
++    libspdm_reset_message_a(spdm_context);
++    libspdm_reset_message_b(spdm_context);
++    libspdm_reset_message_c(spdm_context);
++    spdm_context->connection_info.algorithm.base_hash_algo = m_libspdm_use_hash_algo;
++    spdm_context->connection_info.algorithm.base_asym_algo = m_libspdm_use_asym_algo;
++
++    spdm_context->connection_info.version = SPDM_MESSAGE_VERSION_12 <<
++                                            SPDM_VERSION_NUMBER_SHIFT_BIT;
++
++#if LIBSPDM_RECORD_TRANSCRIPT_DATA_SUPPORT
++    spdm_context->connection_info.peer_used_cert_chain[0].buffer_size =
++        data_size;
++    libspdm_copy_mem(spdm_context->connection_info.peer_used_cert_chain[0].buffer,
++                     sizeof(spdm_context->connection_info.peer_used_cert_chain[0].buffer),
++                     data, data_size);
++#else
++    libspdm_hash_all(
++        spdm_context->connection_info.algorithm.base_hash_algo,
++        data, data_size,
++        spdm_context->connection_info.peer_used_cert_chain[0].buffer_hash);
++    spdm_context->connection_info.peer_used_cert_chain[0].buffer_hash_size =
++        libspdm_get_hash_size(spdm_context->connection_info.algorithm.base_hash_algo);
++    libspdm_get_leaf_cert_public_key_from_cert_chain(
++        spdm_context->connection_info.algorithm.base_hash_algo,
++        spdm_context->connection_info.algorithm.base_asym_algo,
++        data, data_size,
++        &spdm_context->connection_info.peer_used_cert_chain[0].leaf_cert_public_key);
++#endif
++    spdm_context->connection_info.algorithm.other_params_support =
++        SPDM_ALGORITHMS_OPAQUE_DATA_FORMAT_1;
++    opaque_data_size = sizeof(opaque_data);
++
++    libspdm_zero_mem (measurement_hash, sizeof(measurement_hash));
++    status = libspdm_challenge_ex (spdm_context, NULL, 0,
++                                   SPDM_CHALLENGE_REQUEST_NO_MEASUREMENT_SUMMARY_HASH,
++                                   measurement_hash, NULL, NULL, NULL, NULL,
++                                   opaque_data, &opaque_data_size);
++    assert_int_equal(status, LIBSPDM_STATUS_SUCCESS);
++    assert_int_equal(opaque_data_size, m_libspdm_local_opaque_data_size);
++    assert_memory_equal(opaque_data, m_libspdm_local_opaque_data, opaque_data_size);
++    free(data);
++}
++
+ libspdm_test_context_t m_libspdm_requester_challenge_test_context = {
+     LIBSPDM_TEST_CONTEXT_VERSION,
+     true,
+@@ -3416,6 +3589,8 @@ int libspdm_requester_challenge_test_main(void)
+         cmocka_unit_test(libspdm_test_requester_challenge_case24),
+         /* opaque_length greater than the maximum allowed */
+         cmocka_unit_test(libspdm_test_requester_challenge_case25),
++        /* the OpaqueDataFmt1 bit is selected in OtherParamsSelection of ALGORITHMS*/
++        cmocka_unit_test(libspdm_test_requester_challenge_case26),
+     };
+ 
+     libspdm_setup_test_context(&m_libspdm_requester_challenge_test_context);
+diff --git a/unit_test/test_spdm_requester/get_measurements.c b/unit_test/test_spdm_requester/get_measurements.c
+index ee66b30f..56f63398 100644
+--- a/unit_test/test_spdm_requester/get_measurements.c
++++ b/unit_test/test_spdm_requester/get_measurements.c
+@@ -17,6 +17,9 @@ static size_t m_libspdm_local_buffer_size;
+ static uint8_t m_libspdm_local_buffer[LIBSPDM_MAX_MESSAGE_L1L2_BUFFER_SIZE];
+ static uint8_t m_libspdm_msg_log_buffer[LIBSPDM_MAX_MESSAGE_L1L2_BUFFER_SIZE * 2];
+ 
++static uint16_t m_libspdm_local_opaque_data_size;
++static uint8_t m_libspdm_local_opaque_data[LIBSPDM_MAX_MESSAGE_M1M2_BUFFER_SIZE];
++
+ static size_t libspdm_test_get_measurement_request_size(const void *spdm_context,
+                                                         const void *buffer,
+                                                         size_t buffer_size)
+@@ -438,6 +441,15 @@ static libspdm_return_t libspdm_requester_get_measurements_test_send_message(
+                          (const uint8_t *)request + header_size, message_size);
+         m_libspdm_local_buffer_size += message_size;
+         return LIBSPDM_STATUS_SUCCESS;
++    case 0x27:
++        m_libspdm_local_buffer_size = 0;
++        message_size = libspdm_test_get_measurement_request_size(
++            spdm_context, (const uint8_t *)request + header_size,
++            request_size - header_size);
++        libspdm_copy_mem(m_libspdm_local_buffer, sizeof(m_libspdm_local_buffer),
++                         (const uint8_t *)request + header_size, message_size);
++        m_libspdm_local_buffer_size += message_size;
++        return LIBSPDM_STATUS_SUCCESS;
+     default:
+         return LIBSPDM_STATUS_SEND_FAIL;
+     }
+@@ -2972,7 +2984,117 @@ static libspdm_return_t libspdm_requester_get_measurements_test_receive_message(
+                                               response);
+     }
+         return LIBSPDM_STATUS_SUCCESS;
++    case 0x27: {
++        spdm_measurements_response_t *spdm_response;
++        secured_message_opaque_element_table_header_t
++        *opaque_element_table_header;
++        uint8_t *ptr;
++        uint8_t hash_data[LIBSPDM_MAX_HASH_SIZE];
++        size_t sig_size;
++        size_t measurment_sig_size;
++        spdm_measurement_block_dmtf_t *measurment_block;
++        size_t spdm_response_size;
++        size_t transport_header_size;
+ 
++        ((libspdm_context_t *)spdm_context)
++        ->connection_info.algorithm.base_asym_algo = m_libspdm_use_asym_algo;
++        ((libspdm_context_t *)spdm_context)
++        ->connection_info.algorithm.base_hash_algo = m_libspdm_use_hash_algo;
++        ((libspdm_context_t *)spdm_context)
++        ->connection_info.algorithm.measurement_hash_algo = m_libspdm_use_measurement_hash_algo;
++
++
++        transport_header_size = libspdm_transport_test_get_header_size(spdm_context);
++
++        opaque_element_table_header = (void *)(m_libspdm_local_opaque_data + 4);
++        opaque_element_table_header->id = SPDM_REGISTRY_ID_JEDEC;
++        opaque_element_table_header->vendor_len = 0;
++        opaque_element_table_header->opaque_element_data_len = 8;
++
++        libspdm_copy_mem(opaque_element_table_header + 1,
++                         SPDM_MAX_OPAQUE_DATA_SIZE -
++                         sizeof(secured_message_opaque_element_table_header_t), "libspdm",
++                         strlen("libspdm"));
++
++        m_libspdm_local_opaque_data_size =
++            1 + /* TotalElements*/
++            3 + /* Reserved*/
++            sizeof(opaque_element_table_header->id) +
++            sizeof(opaque_element_table_header->vendor_len) +
++            opaque_element_table_header->vendor_len +
++            2 + /* OpaqueElementDataLen*/
++            opaque_element_table_header->opaque_element_data_len;
++
++        measurment_sig_size = SPDM_NONCE_SIZE + sizeof(uint16_t) +
++                              m_libspdm_local_opaque_data_size +
++                              libspdm_get_asym_signature_size(m_libspdm_use_asym_algo);
++        spdm_response_size = sizeof(spdm_measurements_response_t) +
++                             sizeof(spdm_measurement_block_dmtf_t) +
++                             libspdm_get_measurement_hash_size(
++            m_libspdm_use_measurement_hash_algo) + measurment_sig_size;
++        spdm_response = (void *)((uint8_t *)*response + transport_header_size);
++
++        spdm_response->header.spdm_version = SPDM_MESSAGE_VERSION_12;
++        spdm_response->header.request_response_code = SPDM_MEASUREMENTS;
++        spdm_response->header.param1 = 0;
++        spdm_response->header.param2 = 0;
++        spdm_response->number_of_blocks = 1;
++        libspdm_write_uint24(
++            spdm_response->measurement_record_length,
++            (uint32_t)(sizeof(spdm_measurement_block_dmtf_t) +
++                       libspdm_get_measurement_hash_size(
++                           m_libspdm_use_measurement_hash_algo)));
++        measurment_block = (void *)(spdm_response + 1);
++        libspdm_set_mem(measurment_block,
++                        sizeof(spdm_measurement_block_dmtf_t) +
++                        libspdm_get_measurement_hash_size(
++                            m_libspdm_use_measurement_hash_algo), 1);
++        measurment_block->measurement_block_common_header
++        .measurement_specification = SPDM_MEASUREMENT_BLOCK_HEADER_SPECIFICATION_DMTF;
++        measurment_block->measurement_block_common_header.measurement_size =
++            (uint16_t)(sizeof(spdm_measurement_block_dmtf_header_t) +
++                       libspdm_get_measurement_hash_size(
++                           m_libspdm_use_measurement_hash_algo));
++        ptr = (void *)((uint8_t *)spdm_response + spdm_response_size - measurment_sig_size);
++        libspdm_set_mem(ptr, SPDM_NONCE_SIZE, 0x12);
++        ptr += SPDM_NONCE_SIZE;
++
++        *(uint16_t *)ptr = m_libspdm_local_opaque_data_size;
++        ptr += sizeof(uint16_t);
++        libspdm_copy_mem(ptr, (size_t)(*response) + *response_size - (size_t)ptr,
++                         m_libspdm_local_opaque_data,
++                         m_libspdm_local_opaque_data_size);
++        ptr += m_libspdm_local_opaque_data_size;
++
++        libspdm_copy_mem(&m_libspdm_local_buffer[m_libspdm_local_buffer_size],
++                         sizeof(m_libspdm_local_buffer)
++                         - (&m_libspdm_local_buffer[m_libspdm_local_buffer_size] -
++                            m_libspdm_local_buffer),
++                         spdm_response, (size_t)ptr - (size_t)spdm_response);
++        m_libspdm_local_buffer_size += ((size_t)ptr - (size_t)spdm_response);
++        LIBSPDM_DEBUG((LIBSPDM_DEBUG_INFO, "m_libspdm_local_buffer_size (0x%x):\n",
++                       m_libspdm_local_buffer_size));
++        libspdm_dump_hex(m_libspdm_local_buffer, m_libspdm_local_buffer_size);
++        libspdm_hash_all(m_libspdm_use_hash_algo, m_libspdm_local_buffer,
++                         m_libspdm_local_buffer_size, hash_data);
++        LIBSPDM_DEBUG((LIBSPDM_DEBUG_INFO, "HashDataSize (0x%x):\n",
++                       libspdm_get_hash_size(m_libspdm_use_hash_algo)));
++        libspdm_dump_hex(m_libspdm_local_buffer, m_libspdm_local_buffer_size);
++        sig_size = libspdm_get_asym_signature_size(m_libspdm_use_asym_algo);
++        libspdm_responder_data_sign(
++            spdm_response->header.spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
++                SPDM_MEASUREMENTS,
++                m_libspdm_use_asym_algo, m_libspdm_use_hash_algo,
++                false, m_libspdm_local_buffer, m_libspdm_local_buffer_size,
++                ptr, &sig_size);
++        ptr += sig_size;
++
++        libspdm_transport_test_encode_message(spdm_context, NULL, false,
++                                              false, spdm_response_size,
++                                              spdm_response, response_size,
++                                              response);
++    }
++        return LIBSPDM_STATUS_SUCCESS;
+     default:
+         return LIBSPDM_STATUS_RECEIVE_FAIL;
+     }
+@@ -5737,7 +5859,7 @@ static void libspdm_test_requester_get_measurements_case37(void **state)
+     free(data);
+ }
+ 
+-void libspdm_test_requester_get_measurements_case38(void **state)
++static void libspdm_test_requester_get_measurements_case38(void **state)
+ {
+     libspdm_return_t status;
+     libspdm_test_context_t *spdm_test_context;
+@@ -5789,6 +5911,102 @@ void libspdm_test_requester_get_measurements_case38(void **state)
+     free(data);
+ }
+ 
++/**
++ * Test 39: Exercise the libspdm_get_measurement_ex function.
++ * Expected Behavior: client returns a status of RETURN_SUCCESS.
++ **/
++static void libspdm_test_requester_get_measurements_case39(void **state)
++{
++    libspdm_return_t status;
++    libspdm_test_context_t *spdm_test_context;
++    libspdm_context_t *spdm_context;
++    uint8_t number_of_block;
++    uint32_t measurement_record_length;
++    uint8_t measurement_record[LIBSPDM_MAX_MEASUREMENT_RECORD_SIZE];
++    uint8_t request_attribute;
++    void *data;
++    size_t data_size;
++    void *hash;
++    size_t hash_size;
++    uint8_t requester_nonce_in[SPDM_NONCE_SIZE];
++    uint8_t requester_nonce[SPDM_NONCE_SIZE];
++    uint8_t responder_nonce[SPDM_NONCE_SIZE];
++    uint8_t opaque_data[SPDM_MAX_OPAQUE_DATA_SIZE];
++    size_t opaque_data_size;
++
++    spdm_test_context = *state;
++    spdm_context = spdm_test_context->spdm_context;
++    spdm_test_context->case_id = 0x27;
++    spdm_context->connection_info.version = SPDM_MESSAGE_VERSION_12 <<
++                                            SPDM_VERSION_NUMBER_SHIFT_BIT;
++    spdm_context->connection_info.connection_state = LIBSPDM_CONNECTION_STATE_AUTHENTICATED;
++    spdm_context->connection_info.capability.flags |=
++        SPDM_GET_CAPABILITIES_RESPONSE_FLAGS_MEAS_CAP_SIG;
++    libspdm_read_responder_public_certificate_chain(m_libspdm_use_hash_algo,
++                                                    m_libspdm_use_asym_algo, &data,
++                                                    &data_size, &hash, &hash_size);
++    libspdm_reset_message_m(spdm_context, NULL);
++    spdm_context->connection_info.algorithm.measurement_spec = m_libspdm_use_measurement_spec;
++    spdm_context->connection_info.algorithm.measurement_hash_algo =
++        m_libspdm_use_measurement_hash_algo;
++    spdm_context->connection_info.algorithm.base_hash_algo = m_libspdm_use_hash_algo;
++    spdm_context->connection_info.algorithm.base_asym_algo = m_libspdm_use_asym_algo;
++    spdm_context->local_context.algorithm.measurement_spec =
++        SPDM_MEASUREMENT_BLOCK_HEADER_SPECIFICATION_DMTF;
++    spdm_context->connection_info.algorithm.other_params_support =
++        SPDM_ALGORITHMS_OPAQUE_DATA_FORMAT_1;
++
++#if LIBSPDM_RECORD_TRANSCRIPT_DATA_SUPPORT
++    spdm_context->connection_info.peer_used_cert_chain[0].buffer_size = data_size;
++    libspdm_copy_mem(spdm_context->connection_info.peer_used_cert_chain[0].buffer,
++                     sizeof(spdm_context->connection_info.peer_used_cert_chain[0].buffer),
++                     data, data_size);
++#else
++    libspdm_hash_all(
++        spdm_context->connection_info.algorithm.base_hash_algo,
++        data, data_size,
++        spdm_context->connection_info.peer_used_cert_chain[0].buffer_hash);
++    spdm_context->connection_info.peer_used_cert_chain[0].buffer_hash_size =
++        libspdm_get_hash_size(spdm_context->connection_info.algorithm.base_hash_algo);
++    libspdm_get_leaf_cert_public_key_from_cert_chain(
++        spdm_context->connection_info.algorithm.base_hash_algo,
++        spdm_context->connection_info.algorithm.base_asym_algo,
++        data, data_size,
++        &spdm_context->connection_info.peer_used_cert_chain[0].leaf_cert_public_key);
++#endif
++
++    request_attribute = SPDM_GET_MEASUREMENTS_REQUEST_ATTRIBUTES_GENERATE_SIGNATURE;
++
++    measurement_record_length = sizeof(measurement_record);
++
++    for (int index = 0; index < SPDM_NONCE_SIZE; index++) {
++        requester_nonce_in[index] = 0x5c;
++        requester_nonce[index] = 0x00;
++        responder_nonce[index] = 0x00;
++    }
++
++    opaque_data_size = sizeof(opaque_data);
++
++    status = libspdm_get_measurement_ex(spdm_context, NULL, request_attribute, 1,
++                                        0, NULL, &number_of_block,
++                                        &measurement_record_length,
++                                        measurement_record, requester_nonce_in,
++                                        requester_nonce, responder_nonce,
++                                        opaque_data, &opaque_data_size);
++    assert_int_equal(status, LIBSPDM_STATUS_SUCCESS);
++    for (int index = 0; index < SPDM_NONCE_SIZE; index++) {
++        assert_int_equal (requester_nonce_in[index], requester_nonce[index]);
++        assert_int_equal (responder_nonce[index], 0x12);
++    }
++
++    assert_int_equal(opaque_data_size, m_libspdm_local_opaque_data_size);
++    assert_memory_equal(opaque_data, m_libspdm_local_opaque_data, opaque_data_size);
++#if LIBSPDM_RECORD_TRANSCRIPT_DATA_SUPPORT
++    assert_int_equal(spdm_context->transcript.message_m.buffer_size, 0);
++#endif
++    free(data);
++}
++
+ libspdm_test_context_t m_libspdm_requester_get_measurements_test_context = {
+     LIBSPDM_TEST_CONTEXT_VERSION,
+     true,
+@@ -5837,6 +6055,7 @@ int libspdm_requester_get_measurements_test_main(void)
+         cmocka_unit_test(libspdm_test_requester_get_measurements_case36),
+         cmocka_unit_test(libspdm_test_requester_get_measurements_case37),
+         cmocka_unit_test(libspdm_test_requester_get_measurements_case38),
++        cmocka_unit_test(libspdm_test_requester_get_measurements_case39),
+     };
+ 
+     libspdm_setup_test_context(&m_libspdm_requester_get_measurements_test_context);
+diff --git a/unit_test/test_spdm_responder/csr.c b/unit_test/test_spdm_responder/csr.c
+index 373e6c01..e3885f28 100644
+--- a/unit_test/test_spdm_responder/csr.c
++++ b/unit_test/test_spdm_responder/csr.c
+@@ -607,7 +607,8 @@ void libspdm_test_responder_csr_case6(void **state)
+ }
+ 
+ /**
+- * Test 7: receives a valid GET_CSR request message from Requester with non-null right req_info and opaque_data
++ * Test 7: receives a valid GET_CSR request message from Requester with non-null opaque_data
++ * the OpaqueDataFmt1 bit is selected in OtherParamsSelection of ALGORITHMS
+  * Expected Behavior: produces a valid CSR response message
+  **/
+ void libspdm_test_responder_csr_case7(void **state)
+@@ -750,6 +751,90 @@ void libspdm_test_responder_csr_case8(void **state)
+     free(libspdm_get_csr_request);
+ }
+ 
++/**
++ * Test 9: receives a valid GET_CSR request message from Requester with non-null opaque_data
++ * the OpaqueDataFmt1 bit is selected in OtherParamsSelection of ALGORITHMS
++ * Expected Behavior: produces a valid CSR response message
++ **/
++void libspdm_test_responder_csr_case9(void **state)
++{
++    libspdm_return_t status;
++    libspdm_test_context_t *spdm_test_context;
++    libspdm_context_t *spdm_context;
++    size_t response_size;
++    uint8_t response[LIBSPDM_MAX_SPDM_MSG_SIZE];
++    spdm_csr_response_t *spdm_response;
++    spdm_get_csr_request_t *m_libspdm_get_csr_request;
++    uint8_t wrong_csr[LIBSPDM_MAX_CSR_SIZE];
++    libspdm_zero_mem(wrong_csr, LIBSPDM_MAX_CSR_SIZE);
++    secured_message_opaque_element_table_header_t
++    *opaque_element_table_header;
++    uint16_t opaque_data_size;
++
++    spdm_test_context = *state;
++    spdm_context = spdm_test_context->spdm_context;
++    spdm_test_context->case_id = 0x9;
++    spdm_context->connection_info.version = SPDM_MESSAGE_VERSION_12 <<
++                                            SPDM_VERSION_NUMBER_SHIFT_BIT;
++
++    spdm_context->connection_info.connection_state =
++        LIBSPDM_CONNECTION_STATE_NEGOTIATED;
++    spdm_context->local_context.capability.flags |=
++        SPDM_GET_CAPABILITIES_RESPONSE_FLAGS_CSR_CAP;
++    spdm_context->connection_info.algorithm.base_hash_algo =
++        m_libspdm_use_hash_algo;
++    spdm_context->connection_info.algorithm.base_asym_algo =
++        m_libspdm_use_asym_algo;
++    spdm_context->connection_info.algorithm.other_params_support =
++        SPDM_ALGORITHMS_OPAQUE_DATA_FORMAT_1;
++
++    m_libspdm_get_csr_request = malloc(sizeof(spdm_get_csr_request_t) + SPDM_MAX_OPAQUE_DATA_SIZE);
++
++    m_libspdm_get_csr_request->header.spdm_version = SPDM_MESSAGE_VERSION_12;
++    m_libspdm_get_csr_request->header.request_response_code = SPDM_GET_CSR;
++    m_libspdm_get_csr_request->header.param1 = 0;
++    m_libspdm_get_csr_request->header.param2 = 0;
++
++    opaque_element_table_header = (void *)(m_libspdm_get_csr_request + 1);
++    opaque_element_table_header->id = SPDM_REGISTRY_ID_JEDEC;
++    opaque_element_table_header->vendor_len = 0;
++    opaque_element_table_header->opaque_element_data_len = 8;
++    opaque_data_size = 1 + /* TotalElements*/
++                       3 + /* Reserved*/
++                       sizeof(opaque_element_table_header->id) +
++                       sizeof(opaque_element_table_header->vendor_len) +
++                       opaque_element_table_header->vendor_len +
++                       2 + /* OpaqueElementDataLen*/
++                       opaque_element_table_header->opaque_element_data_len;
++
++    libspdm_copy_mem(opaque_element_table_header + 1,
++                     SPDM_MAX_OPAQUE_DATA_SIZE -
++                     sizeof(secured_message_opaque_element_table_header_t), "libspdm",
++                     strlen("libspdm"));
++
++    m_libspdm_get_csr_request->opaque_data_length = opaque_data_size;
++    m_libspdm_get_csr_request->requester_info_length = 0;
++
++    size_t m_libspdm_get_csr_request_size = sizeof(spdm_get_csr_request_t) + opaque_data_size;
++
++    response_size = sizeof(response);
++    status = libspdm_get_response_csr(spdm_context,
++                                      m_libspdm_get_csr_request_size,
++                                      m_libspdm_get_csr_request,
++                                      &response_size, response);
++    assert_int_equal(status, LIBSPDM_STATUS_SUCCESS);
++
++    spdm_response = (void *)response;
++    assert_int_equal(response_size, sizeof(spdm_csr_response_t) + spdm_response->csr_length);
++    assert_int_equal(spdm_response->header.request_response_code,
++                     SPDM_CSR);
++
++    /*check returned CSR not zero */
++    assert_memory_not_equal(spdm_response + 1, wrong_csr, spdm_response->csr_length);
++
++    free(m_libspdm_get_csr_request);
++}
++
+ libspdm_test_context_t m_libspdm_responder_csr_test_context = {
+     LIBSPDM_TEST_CONTEXT_VERSION,
+     false,
+@@ -774,6 +859,8 @@ int libspdm_responder_csr_test_main(void)
+         cmocka_unit_test(libspdm_test_responder_csr_case7),
+         /* Failed Case for csr response  With chaotic req_info and opaque_data */
+         cmocka_unit_test(libspdm_test_responder_csr_case8),
++        /* the OpaqueDataFmt1 bit is selected in OtherParamsSelection of ALGORITHMS*/
++        cmocka_unit_test(libspdm_test_responder_csr_case9),
+     };
+ 
+     libspdm_setup_test_context(&m_libspdm_responder_csr_test_context);
+-- 
+2.25.1
+

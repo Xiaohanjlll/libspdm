@@ -230,3 +230,93 @@ bool libspdm_get_element_from_opaque_data(libspdm_context_t *spdm_context,
 
     return result;
 }
+
+/**
+ *  Process general opaque data check
+ *
+ * @param  data_in_size                  size in bytes of the data_in.
+ * @param  data_in                       A pointer to the buffer to store the opaque data version selection.
+ *
+ * @retval RETURN_SUCCESS               Successfully processed the check for opaque data.
+ * @retval RETURN_UNSUPPORTED           The data_in is NOT opaque data .
+ **/
+bool libspdm_process_general_opaque_data_check(libspdm_context_t *spdm_context,
+                                               size_t data_in_size,
+                                               void *data_in)
+{
+    const spdm_general_opaque_data_table_header_t
+    *spdm_general_opaque_data_table_header;
+    const secured_message_opaque_element_table_header_t
+    *opaque_element_table_header;
+    uint8_t element_num;
+    uint8_t element_index;
+    size_t data_element_size;
+    size_t current_element_len;
+    size_t total_element_len;
+
+    total_element_len = 0;
+
+    if (data_in_size > SPDM_MAX_OPAQUE_DATA_SIZE)
+    {
+        return false;
+    }
+
+    if (libspdm_get_connection_version (spdm_context) >= SPDM_MESSAGE_VERSION_12 ) {
+        switch(spdm_context->connection_info.algorithm.other_params_support) {
+        case SPDM_ALGORITHMS_OPAQUE_DATA_FORMAT_1:
+            if((data_in_size & 3) != 0) {
+                return false;
+            }
+            spdm_general_opaque_data_table_header = data_in;
+            if (data_in_size < sizeof(spdm_general_opaque_data_table_header_t)) {
+                return false;
+            }
+            if (spdm_general_opaque_data_table_header->total_elements < 1) {
+                return false;
+            }
+            opaque_element_table_header = (const void *)(spdm_general_opaque_data_table_header + 1);
+
+            element_num = spdm_general_opaque_data_table_header->total_elements;
+
+            data_element_size = data_in_size - sizeof(spdm_general_opaque_data_table_header_t);
+
+            for (element_index = 0; element_index < element_num; element_index++) {
+                /*ensure the opaque_element_table_header is valid*/
+                if (total_element_len + sizeof(secured_message_opaque_element_table_header_t) >
+                    data_element_size) {
+                    return false;
+                }
+
+                /*check element header id*/
+                if ((opaque_element_table_header->id > SPDM_REGISTRY_ID_JEDEC) ||
+                    (opaque_element_table_header->vendor_len != 0)) {
+                    return false;
+                }
+
+                if (opaque_element_table_header->id > SPDM_REGISTRY_ID_JEDEC) {
+                    return false;
+                }
+
+                current_element_len = sizeof(secured_message_opaque_element_table_header_t) +
+                                      opaque_element_table_header->opaque_element_data_len;
+                /* Add Padding*/
+                current_element_len = (current_element_len + 3) & ~3;
+
+                total_element_len += current_element_len;
+
+                if (total_element_len > data_element_size) {
+                    return false;
+                }
+
+                /*move to next element*/
+                opaque_element_table_header =
+                    (const secured_message_opaque_element_table_header_t *)
+                    ((const uint8_t *)opaque_element_table_header +
+                     current_element_len);
+            }
+            return true;
+        }
+    }
+
+    return true;
+}
