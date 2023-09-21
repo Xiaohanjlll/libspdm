@@ -19,18 +19,21 @@ endif()
 SET(src_test_spdm_crypt
     test_spdm_crypt.c
     ${LIBSPDM_DIR}/unit_test/spdm_unit_test_common/support.c
+    ${LIBSPDM_DIR}/unit_test/spdm_unit_test_common/algo.c
 )
 
 SET(test_spdm_crypt_LIBRARY
     memlib
     debuglib
     spdm_crypt_lib
+    spdm_common_lib
     ${CRYPTO_LIB_PATHS}
     cryptlib_${CRYPTO}
     rnglib
     malloclib
     cmockalib
     spdm_device_secret_lib_sample
+    spdm_crypt_ext_lib
 )
 
 if(TOOLCHAIN STREQUAL "ARM_DS2022")
@@ -47,6 +50,7 @@ if((TOOLCHAIN STREQUAL "KLEE") OR (TOOLCHAIN STREQUAL "CBMC"))
                    $<TARGET_OBJECTS:rnglib>
                    $<TARGET_OBJECTS:cryptlib_${CRYPTO}>
                    $<TARGET_OBJECTS:malloclib>
+                   $<TARGET_OBJECTS:spdm_common_lib>
     )
 else()
     ADD_EXECUTABLE(test_spdm_crypt ${src_test_spdm_crypt})

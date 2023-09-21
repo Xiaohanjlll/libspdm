@@ -6,6 +6,7 @@
 
 #include "spdm_unit_test.h"
 #include "library/spdm_common_lib.h"
+#include "spdm_crypt_ext_lib/spdm_crypt_ext_lib.h"
 
 /* https://lapo.it/asn1js/#MCQGCisGAQQBgxyCEgEMFkFDTUU6V0lER0VUOjEyMzQ1Njc4OTA*/
 uint8_t m_libspdm_subject_alt_name_buffer1[] = {
@@ -402,6 +403,417 @@ void libspdm_test_crypt_spdm_x509_certificate_check(void **state)
     }
 }
 
+void libspdm_test_crypt_asym_verify(void **state)
+{
+    spdm_version_number_t spdm_version;
+    void *context;
+    void *data;
+    size_t data_size;
+    uint8_t signature[LIBSPDM_MAX_HASH_SIZE];
+    size_t sig_size;
+    char *file;
+    bool status;
+
+    uint8_t signature_endian = LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_OR_LITTLE;
+
+    spdm_version = SPDM_MESSAGE_VERSION_11;
+
+    file = "ecp256/end_responder.key";
+    libspdm_read_input_file(file, &data, &data_size);
+    libspdm_asym_get_private_key_from_pem(
+        m_libspdm_use_asym_algo, data, data_size, NULL, &context);
+
+    sig_size = libspdm_get_asym_signature_size(m_libspdm_use_asym_algo);
+
+    libspdm_asym_sign(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_MEASUREMENTS,
+            m_libspdm_use_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            NULL, 0,
+            signature, &sig_size);
+
+#if LIBSPDM_RECORD_TRANSCRIPT_DATA_SUPPORT
+    /* Big Endian Signature. Big Endian Verify */
+    signature_endian = LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY;
+    status = libspdm_asym_verify_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_MEASUREMENTS,
+            m_libspdm_use_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            NULL, 0,
+            signature, sig_size,
+            &signature_endian);
+    assert_true(status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY);
+
+    /*  Error: Big Endian Signature. Little Endian Verify */
+    signature_endian = LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY;
+    status = libspdm_asym_verify_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_MEASUREMENTS,
+            m_libspdm_use_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            NULL, 0,
+            signature, sig_size,
+            &signature_endian);
+    assert_true(!status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY);
+
+    /* Big Endian Signature. Big or Little Endian Verify */
+    signature_endian= LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_OR_LITTLE;
+    status = libspdm_asym_verify_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_MEASUREMENTS,
+            m_libspdm_use_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            NULL, 0,
+            signature, sig_size,
+            &signature_endian);
+    assert_true(status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY);
+
+    libspdm_copy_signature_swap_endian(
+        m_libspdm_use_asym_algo,
+        signature, sig_size, signature, sig_size);
+
+    /* Little Endian Signature. Little Endian Verify */
+    signature_endian = LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY;
+    status = libspdm_asym_verify_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_MEASUREMENTS,
+            m_libspdm_use_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            NULL, 0,
+            signature, sig_size,
+            &signature_endian);
+    assert_true(status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY);
+
+    /* Error: Little Endian Signature. Big Endian Verify */
+    signature_endian = LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY;
+    status = libspdm_asym_verify_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_MEASUREMENTS,
+            m_libspdm_use_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            NULL, 0,
+            signature, sig_size,
+            &signature_endian);
+    assert_true(!status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY);
+
+    /* Little Endian Signature. Big or Little Endian Verify */
+    signature_endian= LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_OR_LITTLE;
+    status = libspdm_asym_verify_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_MEASUREMENTS,
+            m_libspdm_use_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            NULL, 0,
+            signature, sig_size,
+            &signature_endian);
+    assert_true(status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY);
+#else
+    void *data_context;
+    uint8_t hash_value[LIBSPDM_MAX_HASH_SIZE];
+    data_context = libspdm_hash_new(m_libspdm_use_hash_algo);
+    libspdm_hash_init(m_libspdm_use_hash_algo, data_context);
+    libspdm_hash_final(m_libspdm_use_hash_algo, data_context, hash_value);
+
+    /* Big Endian Signature. Big Endian Verify */
+    signature_endian = LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY;
+    status = libspdm_asym_verify_hash_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_MEASUREMENTS,
+            m_libspdm_use_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            hash_value, libspdm_get_hash_size(m_libspdm_use_hash_algo),
+            signature, sig_size,
+            &signature_endian);
+    assert_true(status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY);
+
+    /*  Error: Big Endian Signature. Little Endian Verify */
+    signature_endian = LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY;
+    status = libspdm_asym_verify_hash_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_MEASUREMENTS,
+            m_libspdm_use_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            hash_value, libspdm_get_hash_size(m_libspdm_use_hash_algo),
+            signature, sig_size,
+            &signature_endian);
+    assert_true(!status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY);
+
+    /* Big Endian Signature. Big or Little Endian Verify */
+    signature_endian= LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_OR_LITTLE;
+    status = libspdm_asym_verify_hash_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_MEASUREMENTS,
+            m_libspdm_use_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            hash_value, libspdm_get_hash_size(m_libspdm_use_hash_algo),
+            signature, sig_size,
+            &signature_endian);
+    assert_true(status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY);
+
+    libspdm_copy_signature_swap_endian(
+        m_libspdm_use_asym_algo,
+        signature, sig_size, signature, sig_size);
+
+    /* Little Endian Signature. Little Endian Verify */
+    signature_endian = LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY;
+    status = libspdm_asym_verify_hash_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_MEASUREMENTS,
+            m_libspdm_use_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            hash_value, libspdm_get_hash_size(m_libspdm_use_hash_algo),
+            signature, sig_size,
+            &signature_endian);
+    assert_true(status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY);
+
+    /* Error: Little Endian Signature. Big Endian Verify */
+    signature_endian = LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY;
+    status = libspdm_asym_verify_hash_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_MEASUREMENTS,
+            m_libspdm_use_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            hash_value, libspdm_get_hash_size(m_libspdm_use_hash_algo),
+            signature, sig_size,
+            &signature_endian);
+    assert_true(!status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY);
+
+    /* Little Endian Signature. Big or Little Endian Verify */
+    signature_endian= LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_OR_LITTLE;
+    status = libspdm_asym_verify_hash_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_MEASUREMENTS,
+            m_libspdm_use_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            hash_value, libspdm_get_hash_size(m_libspdm_use_hash_algo),
+            signature, sig_size,
+            &signature_endian);
+    assert_true(status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY);
+
+#endif
+}
+
+void libspdm_test_crypt_req_asym_verify(void **state)
+{
+    spdm_version_number_t spdm_version;
+    void *context;
+    void *data;
+    size_t data_size;
+    uint8_t signature[LIBSPDM_MAX_HASH_SIZE];
+    size_t sig_size;
+    char *file;
+    bool status;
+
+    uint8_t signature_endian = LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_OR_LITTLE;
+    uint16_t libspdm_use_req_asym_algo = SPDM_ALGORITHMS_BASE_ASYM_ALGO_TPM_ALG_ECDSA_ECC_NIST_P256;
+
+    spdm_version = SPDM_MESSAGE_VERSION_11;
+
+    file = "ecp256/end_requester.key";
+    libspdm_read_input_file(file, &data, &data_size);
+
+    libspdm_req_asym_get_private_key_from_pem(libspdm_use_req_asym_algo,
+                                              data,
+                                              data_size, NULL,
+                                              &context);
+
+    sig_size = libspdm_get_asym_signature_size(libspdm_use_req_asym_algo);
+
+    libspdm_req_asym_sign(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_FINISH,
+            libspdm_use_req_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            NULL, 0,
+            signature, &sig_size);
+
+#if LIBSPDM_RECORD_TRANSCRIPT_DATA_SUPPORT
+    /* Big Endian Signature. Big Endian Verify */
+    signature_endian = LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY;
+    status = libspdm_req_asym_verify_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_FINISH,
+            libspdm_use_req_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            NULL, 0,
+            signature, sig_size,
+            &signature_endian);
+    assert_true(status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY);
+
+    /*  Error: Big Endian Signature. Little Endian Verify */
+    signature_endian = LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY;
+    status = libspdm_req_asym_verify_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_FINISH,
+            libspdm_use_req_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            NULL, 0,
+            signature, sig_size,
+            &signature_endian);
+    assert_true(!status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY);
+
+    /* Big Endian Signature. Big or Little Endian Verify */
+    signature_endian= LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_OR_LITTLE;
+    status = libspdm_req_asym_verify_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_FINISH,
+            libspdm_use_req_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            NULL, 0,
+            signature, sig_size,
+            &signature_endian);
+    assert_true(status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY);
+
+    libspdm_copy_signature_swap_endian(
+        libspdm_use_req_asym_algo,
+        signature, sig_size, signature, sig_size);
+
+    /* Little Endian Signature. Little Endian Verify */
+    signature_endian = LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY;
+    status = libspdm_req_asym_verify_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_FINISH,
+            libspdm_use_req_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            NULL, 0,
+            signature, sig_size,
+            &signature_endian);
+    assert_true(status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY);
+
+    /* Error: Little Endian Signature. Big Endian Verify */
+    signature_endian = LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY;
+    status = libspdm_req_asym_verify_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_FINISH,
+            libspdm_use_req_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            NULL, 0,
+            signature, sig_size,
+            &signature_endian);
+    assert_true(!status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY);
+
+    /* Little Endian Signature. Big or Little Endian Verify */
+    signature_endian= LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_OR_LITTLE;
+    status = libspdm_req_asym_verify_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_FINISH,
+            libspdm_use_req_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            NULL, 0,
+            signature, sig_size,
+            &signature_endian);
+    assert_true(status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY);
+#else
+    void *data_context;
+    uint8_t hash_value[LIBSPDM_MAX_HASH_SIZE];
+    data_context = libspdm_hash_new(m_libspdm_use_hash_algo);
+    libspdm_hash_init(m_libspdm_use_hash_algo, data_context);
+    libspdm_hash_final(m_libspdm_use_hash_algo, data_context, hash_value);
+
+    /* Big Endian Signature. Big Endian Verify */
+    signature_endian = LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY;
+    status = libspdm_req_asym_verify_hash_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_FINISH,
+            libspdm_use_req_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            hash_value, libspdm_get_hash_size(m_libspdm_use_hash_algo),
+            signature, sig_size,
+            &signature_endian);
+    assert_true(status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY);
+
+    /*  Error: Big Endian Signature. Little Endian Verify */
+    signature_endian = LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY;
+    status = libspdm_req_asym_verify_hash_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_FINISH,
+            libspdm_use_req_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            hash_value, libspdm_get_hash_size(m_libspdm_use_hash_algo),
+            signature, sig_size,
+            &signature_endian);
+    assert_true(!status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY);
+
+    /* Big Endian Signature. Big or Little Endian Verify */
+    signature_endian= LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_OR_LITTLE;
+    status = libspdm_req_asym_verify_hash_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_FINISH,
+            libspdm_use_req_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            hash_value, libspdm_get_hash_size(m_libspdm_use_hash_algo),
+            signature, sig_size,
+            &signature_endian);
+    assert_true(status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY);
+
+    libspdm_copy_signature_swap_endian(
+        libspdm_use_req_asym_algo,
+        signature, sig_size, signature, sig_size);
+
+    /* Little Endian Signature. Little Endian Verify */
+    signature_endian = LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY;
+    status = libspdm_req_asym_verify_hash_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_FINISH,
+            libspdm_use_req_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            hash_value, libspdm_get_hash_size(m_libspdm_use_hash_algo),
+            signature, sig_size,
+            &signature_endian);
+    assert_true(status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY);
+
+    /* Error: Little Endian Signature. Big Endian Verify */
+    signature_endian = LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY;
+    status = libspdm_req_asym_verify_hash_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_FINISH,
+            libspdm_use_req_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            hash_value, libspdm_get_hash_size(m_libspdm_use_hash_algo),
+            signature, sig_size,
+            &signature_endian);
+    assert_true(!status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_ONLY);
+
+    /* Little Endian Signature. Big or Little Endian Verify */
+    signature_endian= LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_BIG_OR_LITTLE;
+    status = libspdm_req_asym_verify_hash_ex(
+        spdm_version << SPDM_VERSION_NUMBER_SHIFT_BIT,
+            SPDM_FINISH,
+            libspdm_use_req_asym_algo, m_libspdm_use_hash_algo,
+            context,
+            hash_value, libspdm_get_hash_size(m_libspdm_use_hash_algo),
+            signature, sig_size,
+            &signature_endian);
+    assert_true(status);
+    assert_int_equal(signature_endian, LIBSPDM_SPDM_10_11_VERIFY_SIGNATURE_ENDIAN_LITTLE_ONLY);
+#endif
+}
+
 int libspdm_crypt_lib_setup(void **state)
 {
     return 0;
@@ -420,7 +832,10 @@ int libspdm_crypt_lib_test_main(void)
 
         cmocka_unit_test(libspdm_test_crypt_spdm_get_dmtf_subject_alt_name),
 
-        cmocka_unit_test(libspdm_test_crypt_spdm_x509_certificate_check)
+        cmocka_unit_test(libspdm_test_crypt_spdm_x509_certificate_check),
+
+        cmocka_unit_test(libspdm_test_crypt_asym_verify),
+        cmocka_unit_test(libspdm_test_crypt_req_asym_verify)
     };
 
     return cmocka_run_group_tests(spdm_crypt_lib_tests,
