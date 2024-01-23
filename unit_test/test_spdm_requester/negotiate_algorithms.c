@@ -1950,6 +1950,22 @@ static void libspdm_test_requester_negotiate_algorithms_case36(void **state)
     spdm_context->connection_info.connection_state = LIBSPDM_CONNECTION_STATE_AFTER_CAPABILITIES;
     status = libspdm_negotiate_algorithms(spdm_context);
     assert_int_equal(status, LIBSPDM_STATUS_INVALID_MSG_FIELD);
+
+    /* Sub Case 3: mel_specification_sel set SPDM_MEL_SPECIFICATION_DMTF , mel_specification set 0*/
+    libspdm_reset_message_a(spdm_context);
+    m_mel_specification_sel = SPDM_MEL_SPECIFICATION_DMTF;
+    spdm_context->connection_info.connection_state = LIBSPDM_CONNECTION_STATE_AFTER_CAPABILITIES;
+    spdm_context->local_context.algorithm.mel_spec = 0;
+    status = libspdm_negotiate_algorithms(spdm_context);
+    assert_int_equal(status, LIBSPDM_STATUS_INVALID_MSG_FIELD);
+
+    /* Sub Case 4: mel_specification_sel set 0 , mel_specification set 0*/
+    libspdm_reset_message_a(spdm_context);
+    m_mel_specification_sel = 0;
+    spdm_context->connection_info.connection_state = LIBSPDM_CONNECTION_STATE_AFTER_CAPABILITIES;
+    spdm_context->local_context.algorithm.mel_spec = 0;
+    status = libspdm_negotiate_algorithms(spdm_context);
+    assert_int_equal(status, LIBSPDM_STATUS_SUCCESS);
 }
 
 static libspdm_test_context_t m_libspdm_requester_negotiate_algorithms_test_context = {
