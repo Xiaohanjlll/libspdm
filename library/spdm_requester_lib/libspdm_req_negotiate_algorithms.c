@@ -573,12 +573,30 @@ static libspdm_return_t libspdm_try_negotiate_algorithms(libspdm_context_t *spdm
                 if (spdm_response->header.spdm_version >= SPDM_MESSAGE_VERSION_13) {
                     if (libspdm_is_capabilities_flag_supported(
                             spdm_context, true, 0,
-                            SPDM_GET_CAPABILITIES_RESPONSE_FLAGS_MEL_CAP) &&
-                        (spdm_request->mel_specification != 0)) {
-                        if (spdm_context->connection_info.algorithm.mel_spec !=
-                            SPDM_MEL_SPECIFICATION_DMTF) {
-                            status = LIBSPDM_STATUS_INVALID_MSG_FIELD;
-                            goto receive_done;
+                            SPDM_GET_CAPABILITIES_RESPONSE_FLAGS_MEL_CAP)){
+                        if(spdm_request->mel_specification != 0){
+                            if (spdm_context->connection_info.algorithm.mel_spec !=
+                                SPDM_MEL_SPECIFICATION_DMTF) {
+                                status = LIBSPDM_STATUS_INVALID_MSG_FIELD;
+                                goto receive_done;
+                            }
+                        } else  {
+                            if (spdm_context->connection_info.algorithm.mel_spec != 0) {
+                                status = LIBSPDM_STATUS_INVALID_MSG_FIELD;
+                                goto receive_done;
+                            }
+                        }
+                    } else  {
+                        if(spdm_request->mel_specification != 0){
+                            if (spdm_context->connection_info.algorithm.mel_spec != 0) {
+                                status = LIBSPDM_STATUS_INVALID_MSG_FIELD;
+                                goto receive_done;
+                            }
+                        } else  {
+                            if (spdm_context->connection_info.algorithm.mel_spec != 0) {
+                                status = LIBSPDM_STATUS_INVALID_MSG_FIELD;
+                                goto receive_done;
+                            }
                         }
                     }
                 }
