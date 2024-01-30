@@ -409,6 +409,11 @@ static libspdm_return_t libspdm_try_negotiate_algorithms(libspdm_context_t *spdm
             status = LIBSPDM_STATUS_NEGOTIATION_FAIL;
             goto receive_done;
         }
+    } else {
+        if (spdm_context->connection_info.algorithm.measurement_spec != 0) {
+            status = LIBSPDM_STATUS_INVALID_MSG_FIELD;
+            goto receive_done;
+        }
     }
 
     if (libspdm_is_capabilities_flag_supported(
