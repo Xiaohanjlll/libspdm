@@ -33,6 +33,7 @@ SET(src_test_spdm_responder
     heartbeat.c
     key_update.c
     end_session.c
+    vendor_response.c
     encap_get_certificate.c
     encap_get_digests.c
     encap_key_update.c

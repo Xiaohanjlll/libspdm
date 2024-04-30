@@ -42,6 +42,7 @@ SET(src_test_spdm_requester
     get_csr.c
     chunk_get.c
     chunk_send.c
+    vendor_request.c
     error_test/get_version_err.c
     error_test/get_capabilities_err.c
     error_test/negotiate_algorithms_err.c
