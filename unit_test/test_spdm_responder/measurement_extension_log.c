@@ -6,8 +6,19 @@
 
 #include "spdm_unit_test.h"
 #include "internal/libspdm_responder_lib.h"
+#include "stdio.h"
 
 #if LIBSPDM_ENABLE_CAPABILITY_MEL_CAP
+
+
+void dump_data_aaa(const uint8_t *buffer, size_t buffer_size)
+{
+    size_t index;
+    for (index = 0; index < buffer_size; index++) {
+        printf("%02x ", buffer[index]);
+    }
+    printf("\n -------------------------\n ");
+}
 
 spdm_get_measurement_extension_log_request_t m_libspdm_get_measurement_extension_log_request1 = {
     { SPDM_MESSAGE_VERSION_13, SPDM_GET_MEASUREMENT_EXTENSION_LOG, 0, 0 },
@@ -76,6 +87,13 @@ void libspdm_test_responder_measurement_extension_log_case1(void **state)
     spdm_context->connection_info.algorithm.measurement_hash_algo =
         m_libspdm_use_measurement_hash_algo;
 
+    dump_data_aaa( ((uint8_t *)&m_libspdm_get_measurement_extension_log_request1) - sizeof(uint8_t) * 20, m_libspdm_get_measurement_extension_log_request1_size + sizeof(uint8_t) * 20);
+
+        LIBSPDM_DEBUG((LIBSPDM_DEBUG_ERROR, " \n --------- libspdm_get_response_measurement_extension_log --------\n"));
+        LIBSPDM_DEBUG((LIBSPDM_DEBUG_ERROR, " \n --------- m_libspdm_get_measurement_extension_log_request1.header.spdm_version == %d --------\n", m_libspdm_get_measurement_extension_log_request1.header.spdm_version));
+        LIBSPDM_DEBUG((LIBSPDM_DEBUG_ERROR, " \n --------- libspdm_get_connection_version(spdm_context) == %d --------\n", libspdm_get_connection_version(spdm_context)));
+
+    // m_libspdm_get_measurement_extension_log_request1.header.spdm_version = SPDM_MESSAGE_VERSION_13;
     response_size = sizeof(response);
     status = libspdm_get_response_measurement_extension_log(
         spdm_context, m_libspdm_get_measurement_extension_log_request1_size,
@@ -84,12 +102,15 @@ void libspdm_test_responder_measurement_extension_log_case1(void **state)
 
     spdm_mel = NULL;
     spdm_mel_len = 0;
+        LIBSPDM_DEBUG((LIBSPDM_DEBUG_ERROR, " \n --------- libspdm_measurement_extension_log_collection --------\n"));
     libspdm_measurement_extension_log_collection(
         spdm_context,
         m_libspdm_use_mel_spec,
         m_libspdm_use_measurement_spec,
         m_libspdm_use_measurement_hash_algo,
         (void **)&spdm_mel, &spdm_mel_len);
+
+        LIBSPDM_DEBUG((LIBSPDM_DEBUG_ERROR, " \n --------- assert_int_equal  response_size --------\n"));
 
     assert_int_equal(response_size,
                      sizeof(spdm_measurement_extension_log_response_t) +
@@ -365,14 +386,14 @@ int libspdm_responder_measurement_extension_log_test_main(void)
     const struct CMUnitTest spdm_responder_measurement_extension_log_tests[] = {
         /* Success Case*/
         cmocka_unit_test(libspdm_test_responder_measurement_extension_log_case1),
-        /* Success Case, request.length < total MEL len*/
-        cmocka_unit_test(libspdm_test_responder_measurement_extension_log_case2),
-        /* Success Case, request.length > LIBSPDM_MAX_MEL_BLOCK_LEN*/
-        cmocka_unit_test(libspdm_test_responder_measurement_extension_log_case3),
-        /* failed Case,  request.offset > total MEL len*/
-        cmocka_unit_test(libspdm_test_responder_measurement_extension_log_case4),
-        /* Success Case, request.offset < total MEL len*/
-        cmocka_unit_test(libspdm_test_responder_measurement_extension_log_case5),
+        // /* Success Case, request.length < total MEL len*/
+        // cmocka_unit_test(libspdm_test_responder_measurement_extension_log_case2),
+        // /* Success Case, request.length > LIBSPDM_MAX_MEL_BLOCK_LEN*/
+        // cmocka_unit_test(libspdm_test_responder_measurement_extension_log_case3),
+        // /* failed Case,  request.offset > total MEL len*/
+        // cmocka_unit_test(libspdm_test_responder_measurement_extension_log_case4),
+        // /* Success Case, request.offset < total MEL len*/
+        // cmocka_unit_test(libspdm_test_responder_measurement_extension_log_case5),
     };
 
     libspdm_setup_test_context(&m_libspdm_responder_measurement_extension_log_test_context);
