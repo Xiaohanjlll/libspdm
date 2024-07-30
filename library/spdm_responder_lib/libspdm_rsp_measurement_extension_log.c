@@ -7,6 +7,7 @@
 
 #if LIBSPDM_ENABLE_CAPABILITY_MEL_CAP
 
+
 libspdm_return_t libspdm_get_response_measurement_extension_log(libspdm_context_t *spdm_context,
                                                                 size_t request_size,
                                                                 const void *request,
@@ -24,6 +25,7 @@ libspdm_return_t libspdm_get_response_measurement_extension_log(libspdm_context_
     spdm_measurement_extension_log_dmtf_t *spdm_mel;
     size_t spdm_mel_len;
 
+
     spdm_request = request;
 
     /* -=[Check Parameters Phase]=- */
@@ -31,6 +33,7 @@ libspdm_return_t libspdm_get_response_measurement_extension_log(libspdm_context_
                    SPDM_GET_MEASUREMENT_EXTENSION_LOG);
 
     if (libspdm_get_connection_version(spdm_context) < SPDM_MESSAGE_VERSION_13) {
+        LIBSPDM_DEBUG((LIBSPDM_DEBUG_ERROR, " \n --------- 1 --------\n"));
         return libspdm_generate_error_response(spdm_context,
                                                SPDM_ERROR_CODE_UNSUPPORTED_REQUEST,
                                                0,
@@ -38,6 +41,10 @@ libspdm_return_t libspdm_get_response_measurement_extension_log(libspdm_context_
     }
 
     if (spdm_request->header.spdm_version != libspdm_get_connection_version(spdm_context)) {
+        LIBSPDM_DEBUG((LIBSPDM_DEBUG_ERROR, " \n --------- 2 --------\n"));
+        LIBSPDM_DEBUG((LIBSPDM_DEBUG_ERROR, " \n --------- spdm_request->header.spdm_version == %d --------\n", spdm_request->header.spdm_version));
+        LIBSPDM_DEBUG((LIBSPDM_DEBUG_ERROR, " \n --------- libspdm_get_connection_version(spdm_context) == %d --------\n", libspdm_get_connection_version(spdm_context)));
+        LIBSPDM_DEBUG((LIBSPDM_DEBUG_ERROR, " \n --------- 2 --------\n"));
         return libspdm_generate_error_response(spdm_context,
                                                SPDM_ERROR_CODE_VERSION_MISMATCH, 0,
                                                response_size, response);
@@ -49,6 +56,7 @@ libspdm_return_t libspdm_get_response_measurement_extension_log(libspdm_context_
             response_size, response);
     }
     if (spdm_context->connection_info.connection_state < LIBSPDM_CONNECTION_STATE_NEGOTIATED) {
+        LIBSPDM_DEBUG((LIBSPDM_DEBUG_ERROR, " \n --------- 3 --------\n"));
         return libspdm_generate_error_response(spdm_context,
                                                SPDM_ERROR_CODE_UNEXPECTED_REQUEST,
                                                0, response_size, response);
@@ -60,6 +68,7 @@ libspdm_return_t libspdm_get_response_measurement_extension_log(libspdm_context_
             spdm_context,
             spdm_context->last_spdm_request_session_id);
         if (session_info == NULL) {
+        LIBSPDM_DEBUG((LIBSPDM_DEBUG_ERROR, " \n --------- 4 --------\n"));
             return libspdm_generate_error_response(
                 spdm_context,
                 SPDM_ERROR_CODE_UNEXPECTED_REQUEST, 0,
@@ -68,6 +77,7 @@ libspdm_return_t libspdm_get_response_measurement_extension_log(libspdm_context_
         session_state = libspdm_secured_message_get_session_state(
             session_info->secured_message_context);
         if (session_state != LIBSPDM_SESSION_STATE_ESTABLISHED) {
+        LIBSPDM_DEBUG((LIBSPDM_DEBUG_ERROR, " \n --------- 5 --------\n"));
             return libspdm_generate_error_response(
                 spdm_context,
                 SPDM_ERROR_CODE_UNEXPECTED_REQUEST, 0,
@@ -77,6 +87,7 @@ libspdm_return_t libspdm_get_response_measurement_extension_log(libspdm_context_
     if (!libspdm_is_capabilities_flag_supported(
             spdm_context, false, 0,
             SPDM_GET_CAPABILITIES_RESPONSE_FLAGS_MEL_CAP)) {
+        LIBSPDM_DEBUG((LIBSPDM_DEBUG_ERROR, " \n --------- 6 --------\n"));
         return libspdm_generate_error_response(
             spdm_context, SPDM_ERROR_CODE_UNSUPPORTED_REQUEST,
             0, response_size, response);
@@ -84,12 +95,14 @@ libspdm_return_t libspdm_get_response_measurement_extension_log(libspdm_context_
 
     if ((spdm_context->connection_info.algorithm.mel_spec == 0) ||
         (spdm_context->connection_info.algorithm.measurement_hash_algo == 0) ) {
+        LIBSPDM_DEBUG((LIBSPDM_DEBUG_ERROR, " \n --------- 7 --------\n"));
         return libspdm_generate_error_response(
             spdm_context, SPDM_ERROR_CODE_UNEXPECTED_REQUEST,
             0, response_size, response);
     }
 
     if (request_size < sizeof(spdm_get_measurement_extension_log_request_t)) {
+        LIBSPDM_DEBUG((LIBSPDM_DEBUG_ERROR, " \n --------- 8 --------\n"));
         return libspdm_generate_error_response(spdm_context,
                                                SPDM_ERROR_CODE_INVALID_REQUEST, 0,
                                                response_size, response);
@@ -114,12 +127,14 @@ libspdm_return_t libspdm_get_response_measurement_extension_log(libspdm_context_
             spdm_context->connection_info.algorithm.measurement_spec,
             spdm_context->connection_info.algorithm.measurement_hash_algo,
             (void **)&spdm_mel, &spdm_mel_len)) {
+        LIBSPDM_DEBUG((LIBSPDM_DEBUG_ERROR, " \n --------- 9 --------\n"));
         return libspdm_generate_error_response(spdm_context,
                                                SPDM_ERROR_CODE_OPERATION_FAILED, 0,
                                                response_size, response);
     }
 
     if (offset >= spdm_mel_len) {
+        LIBSPDM_DEBUG((LIBSPDM_DEBUG_ERROR, " \n --------- 10 --------\n"));
         return libspdm_generate_error_response(spdm_context,
                                                SPDM_ERROR_CODE_INVALID_REQUEST, 0,
                                                response_size, response);
